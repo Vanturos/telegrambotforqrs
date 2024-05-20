@@ -5,6 +5,9 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ContentType
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from pyzbar.pyzbar import decode
 from PIL import Image
 import io
@@ -18,7 +21,7 @@ Bot_TOKEN = os.environ.get('BOT_TOKEN')  # Убедитесь, что ваш т�
 ADMIN_ID = int(os.environ.get('ADMIN_ID'))  # Убедитесь, что ваш numeric user ID хранится в переменной окружения
 
 bot = Bot(token=Bot_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 # Создание клавиатуры с кнопками
 keyboard = ReplyKeyboardMarkup(
@@ -28,6 +31,9 @@ keyboard = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
+
+class BugReport(StatesGroup):
+    waiting_for_report = State()
 
 @dp.message(Command(commands=['start']))
 async def start_command(message: types.Message):
@@ -60,8 +66,15 @@ async def responsibilities(message: types.Message):
     )
 
 @dp.message(lambda message: message.text == "Связь с разработчиком")
-async def bug_report(message: types.Message):
+async def bug_report(message: types.Message, state: FSMContext):
     await message.answer('Опишите ошибку или баг, который вы обнаружили.', reply_markup=keyboard)
+    await state.set_state(BugReport.waiting_for_report)
+
+@dp.message(BugReport.waiting_for_report)
+async def process_bug_report(message: types.Message, state: FSMContext):
+    await bot.send_message(ADMIN_ID, f"Багрепорт от {message.from_user.username or message.from_user.full_name}:\n{message.text}")
+    await message.answer('Спасибо за ваш отчет! Он был отправлен администратору.', reply_markup=keyboard)
+    await state.clear()
 
 async def process_qr(image_bytes):
     # Преобразование байтов в изображение OpenCV
@@ -118,6 +131,7 @@ async def main():
     dp.message.register(check_qr, lambda message: message.text == "Сканировать")
     dp.message.register(responsibilities, lambda message: message.text == "Помощь")
     dp.message.register(bug_report, lambda message: message.text == "Связь с разработчиком")
+    dp.message.register(process_bug_report, BugReport.waiting_for_report)
     dp.message.register(handle_photo, lambda message: message.content_type == ContentType.PHOTO)
     dp.message.register(handle_document, lambda message: message.content_type == ContentType.DOCUMENT)
     dp.message.register(forward_bug_report)
